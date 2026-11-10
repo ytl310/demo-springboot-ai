@@ -1,0 +1,186 @@
+spring:
+  application:
+    name: demo-springboot-ai
+
+  # Virtual threads (JDK 21)
+  threads:
+    virtual:
+      enabled: true
+
+  ai:
+    chat:
+      client:
+        enabled: false # 建议禁用大模型自动配置加载，改为手动加载，避免冲突
+
+
+    openai:
+      api-key: xxxx #修改为自己的key
+      base-url: https://api.deepseek.com/v1
+      chat:
+        options:
+          model: deepseek-v4-pro
+          temperature: 0.7
+      embedding:
+        # 对于 llama-server，API Key 可以留空或填任意值，llama-server走openai规范，不走ollama
+        api-key: "ollama"
+        #对于 llama-server(llama.cpp),必须加/v1路径
+        base-url: http://localhost:11434/v1
+#        api-key: ${OPENAI_API_KEY} #因为目前DeepSeek还不支持embedding，所以embedding配置另外的，区别于上面的chat模型
+#        base-url: https://api.openai.com/v1 #因为目前DeepSeek还不支持embedding，所以embedding配置另外的，区别于上面的chat模型
+        options:
+          # 或者使用专门的 embedding 模型
+           model: qwen3-embedding:0.6b  #
+           dimensions: #256 嵌入维度256
+
+    # Ollama配置（用于嵌入）
+#    ollama:
+#      base-url: http://localhost:11434
+#      embedding:
+#        options:
+#          model: qwen3-embedding:0.6b  # 或其他Ollama嵌入模型
+#          dimensions: 1024 #嵌入维度1024
+#          num-gpu: 0          # 强制 CPU
+#          num-thread: 4       # CPU 线程数
+#          num-ctx: 512         # 减小上下文窗口
+
+#    deepseek:
+#      api-key: ${DEEPSEEK_API_KEY}
+#      base-url: https://api.deepseek.com/anthropic    # 关键！指向 DeepSeek 的端点，不然默认走api.openai.com是连接不上的
+#      chat:
+#        options:
+#          model: deepseek-v4-pro
+#          temperature: 0.7
+
+
+  ##采用手动配置
+  #    vectorstore:
+  #      # type: redis    # 此配置项是自动启用的关键，在配置文件中通常可省略，因为依赖引入后会自动配置 [citation:2]
+  #      redis:
+  #        # 是否在启动时自动创建索引和映射，默认为 false [citation:1][citation:2][citation:4]
+  #        initialize-schema: true
+  #        # Redis 索引名称，默认为 "spring-ai-index" [citation:1][citation:2]
+  #        index-name: default-index
+  #        # Redis 中存储向量的 key 前缀，默认为 "embedding:" [citation:1][citation:2][citation:8]
+  #        prefix: custom-prefix
+
+  data:
+    redis:
+      host: xxxx
+      port: xxxx
+      password:
+#      lettuce:
+#        pool:
+#          max-wait: 2000ms       # 调整为合理值，避免过多超时异常
+#          max-active: 100         # 设置最大连接数，防止资源枯竭，推荐100左右
+#          max-idle: 10            # 控制空闲连接数以减少连接的建立和销毁
+#          min-idle: 5             # 保持最小空闲连接数，避免高并发下频繁重建连接
+#        shutdown-timeout: 100ms
+      jedis:
+        pool:
+          max-wait: 2000ms       # 调整为合理值，避免过多超时异常
+          max-active: 100         # 设置最大连接数，防止资源枯竭，推荐100左右
+          max-idle: 10            # 控制空闲连接数以减少连接的建立和销毁
+          min-idle: 5             # 保持最小空闲连接数，避免高并发下频繁重建连接
+      database: 0
+
+
+  #禁用RedisVectorStoreAutoConfiguration自动加载(当然也可以在启动类那里配置禁用自动加载)
+  #改为手动加载(即手动加载@Bean("myVectorStore"))
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.vectorstore.redis.autoconfigure.RedisVectorStoreAutoConfiguration
+
+server:
+  port: 8080
+
+logging:
+  level:
+    org.springframework.ai: DEBUG
+    com.example.demo: DEBUG
+    io.micrometer: INFO
+    org.springframework.boot.actuate: INFO
+
+# ══════════════════════════════════════════
+# Observability: Metrics + Tracing + Health
+# ══════════════════════════════════════════
+management:
+  # ── Endpoints ──
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env,loggers,threaddump,heapdump
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      show-components: always
+      probes:
+        enabled: true               # Kubernetes liveness/readiness
+  # ── Metrics ──
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+        step: 30s                    # scrape interval
+    tags:
+      application: ${spring.application.name}
+      instance: ${random.uuid}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true   # percentile latency buckets
+        spring.ai.chat.client.requests: true  # Spring AI chat latency
+      slo:
+        http.server.requests: 50ms,100ms,250ms,500ms,1s
+  # ── Tracing (OpenTelemetry) ──
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0              # 100% in dev; 0.1 in prod
+    baggage:
+      remote-fields: user-id,session-id
+    propagation:
+      type: w3c                     # W3C TraceContext standard
+  # ── OTLP Exporter (OpenTelemetry Collector / Jaeger) ──
+
+
+###得启动otel服务
+#  # OpenTelemetry Collector + Jaeger 一键
+#  docker run -d --name otel-collector -p 4318:4318 -p 16686:16686 \
+#  otel/opentelemetry-collector-contrib:latest
+#
+#  # 或者只用 Jaeger或langfuse（自带 OTLP 接收）
+#  docker run -d --name jaeger \
+#  -p 16686:16686 -p 4318:4318 \
+#  jaegertracing/all-in-one:latest
+
+  otel:
+    traces:
+      exporter:
+        endpoint: http://localhost:4318/v1/traces   # OTLP HTTP → OTel Collector
+        protocol: http/protobuf
+        connect-timeout: 3s
+        read-timeout: 5s
+    resource:
+      service.name: ${spring.application.name}
+      deployment.environment: dev
+    logs:
+      export:
+        enabled: true               # 日志也走 OTel pipeline
+  # ── Health checks ──
+  health:
+    redis:
+      enabled: true
+    diskspace:
+      enabled: true
+      threshold: 100MB              # alert if < 100MB free
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  # ── Observability annotations (@Timed, @Counted) ──
+  observations:
+    annotations:
+      enabled: true
+
+# ── Prometheus Alerting Rules (reference) ──
+# Run: docker run -d -p 9090:9090 -v ./prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus

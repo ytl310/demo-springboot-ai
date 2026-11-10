@@ -1,0 +1,80 @@
+# Prometheus Alerting Rules for Spring Boot AI Service
+
+groups:
+  - name: spring-boot-ai-alerts
+    rules:
+
+    # ── Service Health ──
+    - alert: ServiceDown
+      expr: up{job="spring-boot-ai"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "{{ $labels.application }} is down"
+        description: "Actuator /health has been unreachable for 1 minute"
+
+    - alert: HighErrorRate
+      expr: rate(http_server_requests_seconds_count{status=~"5.."}[5m]) / rate(http_server_requests_seconds_count[5m]) > 0.05
+      for: 2m
+      labels:
+        severity: critical
+      annotations:
+        summary: "> 5% HTTP 5xx error rate on {{ $labels.application }}"
+        description: "5xx rate at {{ $value | humanizePercentage }} over last 5min"
+
+    # ── Latency ──
+    - alert: HighLatency
+      expr: histogram_quantile(0.95, rate(http_server_requests_seconds_bucket[5m])) > 1
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "P95 latency > 1s on {{ $labels.application }}"
+        description: "P95 = {{ $value }}s over last 5min"
+
+    # ── Spring AI Chat Latency ──
+    - alert: AIChatSlow
+      expr: histogram_quantile(0.95, rate(spring_ai_chat_client_requests_seconds_bucket[5m])) > 10
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "AI chat P95 > 10s on {{ $labels.application }}"
+        description: "LLM calls are slow — check API or provider"
+
+    # ── JVM ──
+    - alert: HighHeapUsage
+      expr: sum(jvm_memory_used_bytes{area="heap"}) / sum(jvm_memory_max_bytes{area="heap"}) > 0.9
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "JVM heap > 90% on {{ $labels.application }}"
+        description: "Heap at {{ $value | humanizePercentage }}"
+
+    - alert: HighCPUUsage
+      expr: rate(process_cpu_usage[5m]) > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "CPU > 80% on {{ $labels.application }}"
+
+    # ── Disk ──
+    - alert: LowDiskSpace
+      expr: disk_free_bytes{path="/"} / 1024 / 1024 / 1024 < 5
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Disk < 5GB free on {{ $labels.instance }}"
+
+    # ── Redis Connectivity ──
+    - alert: RedisDown
+      expr: health_status{component="redis"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Redis is DOWN on {{ $labels.application }}"

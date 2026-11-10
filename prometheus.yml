@@ -1,0 +1,26 @@
+# Prometheus config + alerting rules for Spring Boot AI service
+# Usage: docker run -d -p 9090:9090 -v ./prometheus.yml:/etc/prometheus/prometheus.yml prom/prometheus
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# ── Alertmanager ──
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['localhost:9093']
+
+# ── Alert Rules ──
+rule_files:
+  - 'alerts.yml'
+
+# ── Scrape Targets ──
+scrape_configs:
+  - job_name: 'spring-boot-ai'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['localhost:8080']
+        labels:
+          application: 'demo-springboot-ai'
+          env: 'dev'
